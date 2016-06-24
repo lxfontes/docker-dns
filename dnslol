@@ -1,0 +1,65 @@
+#!/bin/bash
+
+start_dnsmasq() {
+  dnsmasq &
+}
+
+log() {
+  echo "dnslol: $*"
+}
+
+stop_dnsmasq() {
+  dpid=$(pidof dnsmasq)
+  kill $dpid
+  wait $dpid
+}
+
+reload_dnsmasq() {
+  stop_dnsmasq
+  start_dnsmasq
+}
+
+container_create() {
+  container=$1
+  extras=${@:2}
+  ip=$(docker inspect -f "{{.NetworkSettings.IPAddress}}" $container)
+  name=$(docker inspect -f "{{.Name}}" $container | sed -e 's/[\/]//g' | sed -e 's/[_]/-/g')
+
+  if [ -z "$ip" ]; then
+    log "Skipping (no-ip) $container - $name"
+    return
+  fi
+
+  log "Registering $container $ip - $name"
+
+  echo "address=/$container.$LOCAL/$ip" > /etc/dnsmasq.d/${container}.conf
+  echo "address=/$name.$LOCAL/$ip" >> /etc/dnsmasq.d/${container}.conf
+
+  reload_dnsmasq
+}
+
+container_die() {
+  container=$1
+
+  log "Removing $container"
+
+  rm -f /etc/dnsmasq.d/${container}.conf
+  reload_dnsmasq
+}
+
+start_dnsmasq
+
+while read time type cmd container extras; do
+#  echo $time $type $cmd $container $extras
+  case $type in
+    container)
+      case $cmd in
+        create)
+          container_create $container $extras
+        ;;
+        die)
+          container_die $container $extras
+        ;;
+      esac
+  esac
+done
